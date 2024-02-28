@@ -1,49 +1,30 @@
-use std::{
-    sync::{Arc, Mutex},
-    thread::JoinHandle,
-};
+use std::thread::*;
 
-pub struct Engine {
-    workload: Vec<usize>,
-    workdone: Arc<Mutex<Vec<usize>>>,
-    workers: Vec<JoinHandle<()>>,
+pub trait MultithreadedMap {
+    fn map(self, threads_count: usize, callback: fn(Vec<usize>) -> Vec<usize>) -> Vec<usize>;
 }
 
-impl Engine {
-    pub fn new(threads_num: usize, workload: Vec<usize>) -> Self {
-        Self {
-            workdone: Arc::new(Mutex::new(Vec::new())),
-            workload,
-            workers: Vec::with_capacity(threads_num),
-        }
-    }
+impl MultithreadedMap for Vec<usize> {
+    fn map(self, threads_count: usize, callback: fn(Vec<usize>) -> Vec<usize>) -> Vec<usize> {
+        let mut working_threads: Vec<JoinHandle<Vec<usize>>> = Vec::new();
 
-    pub fn start(
-        &mut self,
-        worker: impl FnMut(Vec<usize>, Arc<Mutex<Vec<usize>>>) + Send + 'static,
-    ) {
-        for i in 0..self.workers.len() {
-            let mut personal_workload = Vec::new();
-            let mut picker = i;
-            while picker < self.workload.len() {
-                personal_workload.push(self.workload[picker]);
-                picker += self.workers.len();
+        for i in 0..threads_count {
+            println!("> Preparing thread {i}");
+            let mut workload = Vec::new();
+            let mut jumper = i;
+            while jumper < self.len() {
+                workload.push(self[jumper]);
+                jumper += threads_count;
             }
-
-            let thread_local_workdone = Arc::clone(&self.workdone);
-            self.workers[i] = std::thread::spawn(|| {
-                worker(personal_workload, thread_local_workdone);
-            });
+            working_threads.push(spawn(move || callback(workload)));
+            println!("> Thread {i} launched !");
         }
-    }
 
-    pub fn join_all(self) {
-        for thd in self.workers.iter() {
-            thd.join().expect("Thread crashed ? I dunno.");
+        let mut processed_vec = Vec::new();
+        for thd in working_threads {
+            processed_vec.extend(thd.join().unwrap())
         }
-    }
 
-    pub fn get_workdone(self) -> Vec<usize> {
-        (*self.workdone).lock().unwrap().clone()
+        processed_vec
     }
 }
